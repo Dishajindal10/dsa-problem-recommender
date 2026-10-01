@@ -15,48 +15,93 @@ vectorizer = TfidfVectorizer()
 Tfidf_matrix = vectorizer.fit_transform(df['combined_text'])
 similarity_matrix = cosine_similarity(Tfidf_matrix)
 
-def get_recommendations(title, top_n = 5, difficulty_filter=None):
-    if title not in df['title'].values:
-        return None
-    
-    idx = df[df['title'] == title].index[0]
-    
-    scores = list(enumerate(similarity_matrix[idx]))
-    scores = sorted(scores, key = lambda x: x[1], reverse=True)
 
-    top_results = scores[1:top_n+1]
+def get_recommendations(titles, top_n=5, difficulty_filter=None):
+    solved_indices = df.index[df["title"].isin(titles)].tolist()
+
+    if not solved_indices:
+        return []
+
+    combined_scores = []
+
+    for i in range(len(df)):
+
+        # Skip problems the user has already solved
+        if i in solved_indices:
+            continue
+
+        # Get similarity with each solved problem
+        similarities = [
+            similarity_matrix[solved_index][i]
+            for solved_index in solved_indices
+        ]
+
+        score = max(similarities)
+
+        combined_scores.append((i, score))
+
+    combined_scores = sorted(combined_scores, key=lambda x: x[1], reverse=True)
 
     recommendations = []
 
-    for i, score in scores[1:]:
+    for i, score in combined_scores:
         problem_difficulty = df.iloc[i]['difficulty']
+
         if difficulty_filter and problem_difficulty not in difficulty_filter:
-            continue 
-        recommendations.append({"title": df.iloc[i]['title'],"difficulty": df.iloc[i]['difficulty'],"score": round(float(score),3)})
+            continue
+
+
+        candidate_topics = set(df.iloc[i]["topics"])
+
+        solved_topics = set()
+
+        for solved_index in solved_indices:
+            solved_topics.update(df.iloc[solved_index]["topics"])
+
+        matched_topics = candidate_topics.intersection(solved_topics)
+
+        recommendations.append({
+            "title": df.iloc[i]['title'],
+            "difficulty": df.iloc[i]['difficulty'],
+            "score": round(float(score), 3),
+            "url": df.iloc[i]['url'],
+            "matched_topics": list(matched_topics)
+        })
+
         if len(recommendations) >= top_n:
             break
-    
+
     return recommendations
 
 
-# UI:
+# ***** UI:
 
 st.title("DSA Problem Recommender")
 st.write("Enter a Leetcode problem you've solved, and get similar problems recommended! ")
 
-problem_titles = df['title'].tolist()
-selected_title = st.selectbox("Choose a problem: ", problem_titles)
 
-top_n = st.slider("How many recommendations?", 1, 10, 5) #(min, max, deafult val)
+# select problems:
+problem_titles = df['title'].tolist()
+selected_title = st.multiselect(
+    "Select problems you've already solved: ", problem_titles)
+
+if (selected_title):
+    selected_problems = df[df['title'].isin(selected_title)]
+
+    st.write("### Your Selected Problems: ")
+    st.dataframe(selected_problems[["title", "difficulty", "topics_text"]])
+
+
+top_n = st.slider("How many recommendations?", 1, 10, 5)
 
 st.write("Filter by difficulty:")
 col1, col2, col3 = st.columns(3)
 with col1:
-    show_easy = st.checkbox("Easy", value=True)
+    show_easy = st.checkbox("Easy", value=False)
 with col2:
-    show_medium = st.checkbox("Medium", value=True)
+    show_medium = st.checkbox("Medium", value=False)
 with col3:
-    show_hard = st.checkbox("Hard", value=True)
+    show_hard = st.checkbox("Hard", value=False)
 
 selected_difficulties = []
 if show_easy:
@@ -66,12 +111,27 @@ if show_medium:
 if show_hard:
     selected_difficulties.append("Hard")
 
-if(st.button("Get Recommendations")):
+if (st.button("Get Recommendations")):
     results = get_recommendations(selected_title, top_n, selected_difficulties)
-    
+
     if results:
-        st.subheader(f"Problems similar to '{selected_title}' : ")
+        st.subheader(f"Recommended Problems")
+
         for r in results:
-            st.write(f"**{r['title']}** - {r['difficulty']} (similarity: {r['score']})")
+            st.write(
+                f"### {r['title']}"
+            )
+
+            st.write(
+                f"**Difficulty:** {r['difficulty']}"
+                f" | **Similarity:** {r['score']}"
+            )
+
+            if r["matched_topics"]:
+                st.write(
+                    "**Why recommendation?** " + ", ".join(r["matched_topics"])
+                )
+
+            st.link_button("🔗 Solve the problem", r["url"])
     else:
         st.write("No recommendations found.")
