@@ -22,6 +22,11 @@ def get_recommendations(titles, top_n=5, difficulty_filter=None):
     if not solved_indices:
         return []
 
+    solved_topics = set()
+
+    for solved_index in solved_indices:
+        solved_topics.update(df.iloc[solved_index]["topics"])
+
     combined_scores = []
 
     for i in range(len(df)):
@@ -38,27 +43,27 @@ def get_recommendations(titles, top_n=5, difficulty_filter=None):
 
         score = max(similarities)
 
-        combined_scores.append((i, score))
+        candidate_topics = set(df.iloc[i]["topics"])
+
+        matched_topics = candidate_topics.intersection(solved_topics)
+
+        topic_score = (len(matched_topics) / len(candidate_topics) if candidate_topics
+                       else 0
+                       )
+
+        final_score = (0.5 * score) + (0.5 * topic_score)
+
+        combined_scores.append((i, final_score, matched_topics))
 
     combined_scores = sorted(combined_scores, key=lambda x: x[1], reverse=True)
 
     recommendations = []
 
-    for i, score in combined_scores:
+    for i, score, matched_topics in combined_scores:
         problem_difficulty = df.iloc[i]['difficulty']
 
         if difficulty_filter and problem_difficulty not in difficulty_filter:
             continue
-
-
-        candidate_topics = set(df.iloc[i]["topics"])
-
-        solved_topics = set()
-
-        for solved_index in solved_indices:
-            solved_topics.update(df.iloc[solved_index]["topics"])
-
-        matched_topics = candidate_topics.intersection(solved_topics)
 
         recommendations.append({
             "title": df.iloc[i]['title'],
@@ -124,7 +129,7 @@ if (st.button("Get Recommendations")):
 
             st.write(
                 f"**Difficulty:** {r['difficulty']}"
-                f" | **Similarity:** {r['score']}"
+                f" | **Score:** {r['score']}"
             )
 
             if r["matched_topics"]:
